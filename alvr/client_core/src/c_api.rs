@@ -683,6 +683,7 @@ pub extern "C" fn alvr_resume_opengl(
         GRAPHICS_CONTEXT.with_borrow(|c| c.as_ref().unwrap().clone()),
         UVec2::new(preferred_view_width, preferred_view_height),
         convert_swapchain_array(swapchain_textures, swapchain_length),
+        alvr_graphics::SDR_FORMAT,
         "",
     )));
 }

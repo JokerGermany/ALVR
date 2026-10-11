@@ -13,6 +13,7 @@ use alvr_common::{
     error,
     glam::{UVec2, Vec2},
     parking_lot::RwLock,
+    warn,
 };
 use alvr_graphics::{GraphicsContext, StreamRenderer, StreamViewParams};
 use alvr_packets::{ClientStreamConfig, RealTimeConfig, TrackingData};
@@ -111,10 +112,30 @@ impl StreamContext {
 
         let xr_exts = xr_session.instance().exts();
 
-        if xr_exts.fb_display_refresh_rate.is_some() {
-            xr_session
-                .request_display_refresh_rate(config.refresh_rate_hint)
-                .unwrap();
+        if xr_exts.fb_display_refresh_rate.is_some()
+            && let Err(e) = xr_session.request_display_refresh_rate(config.refresh_rate_hint)
+        {
+            // Some runtimes (e.g. SteamVR on the Steam Frame / Lepton) reject the requested rate
+            // even if the extension is available. Fall back to the closest supported rate, or
+            // keep the runtime default.
+            warn!(
+                "Failed to set display refresh rate {}: {e}",
+                config.refresh_rate_hint
+            );
+            let closest_rate = xr_session
+                .enumerate_display_refresh_rates()
+                .unwrap_or_default()
+                .into_iter()
+                .min_by(|a, b| {
+                    (a - config.refresh_rate_hint)
+                        .abs()
+                        .total_cmp(&(b - config.refresh_rate_hint).abs())
+                });
+            if let Some(rate) = closest_rate
+                && let Err(e) = xr_session.request_display_refresh_rate(rate)
+            {
+                warn!("Failed to set display refresh rate {rate}: {e}");
+            }
         }
 
         let foveation_profile = if let Some(config) = &config.clientside_foveation_config

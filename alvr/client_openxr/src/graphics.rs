@@ -26,7 +26,10 @@ pub fn swapchain_format(
     gfx_ctx.make_current();
 
     let formats = session.enumerate_swapchain_formats().unwrap();
-    alvr_graphics::choose_swapchain_format(&formats, enable_hdr)
+    let format = alvr_graphics::choose_swapchain_format(&formats, enable_hdr);
+    alvr_common::info!("OpenXR swapchain formats: {formats:#x?}, selected: {format:#x}");
+
+    format
 }
 
 #[allow(unused_variables)]
