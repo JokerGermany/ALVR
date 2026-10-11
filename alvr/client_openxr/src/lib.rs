@@ -26,7 +26,17 @@ use interaction::{InteractionContext, InteractionSourcesConfig};
 use lobby::Lobby;
 use openxr as xr;
 use passthrough::PassthroughLayer;
-use std::{ffi::CStr, path::Path, rc::Rc, sync::Arc, thread, time::Duration};
+use std::{
+    ffi::CStr,
+    path::Path,
+    rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    thread,
+    time::Duration,
+};
 use stream::StreamContext;
 
 fn from_xr_vec3(v: xr::Vector3f) -> Vec3 {
@@ -600,6 +610,8 @@ pub fn entry_point() {
                     panic!();
                 }
             };
+            update_xr_time_offset(&xr_instance, &frame_state);
+
             let frame_interval =
                 Duration::from_nanos(frame_state.predicted_display_period.as_nanos() as _);
             let vsync_time =
@@ -644,14 +656,14 @@ pub fn entry_point() {
                 let time = to_xr_time(display_time);
                 error!("End frame failed! {e}, timestamp: {display_time:?}, time: {time:?}");
 
-                if !platform.is_vive() {
-                    xr_frame_stream
-                        .end(
-                            frame_state.predicted_display_time,
-                            xr::EnvironmentBlendMode::OPAQUE,
-                            &[],
-                        )
-                        .unwrap();
+                if !platform.is_vive()
+                    && let Err(e) = xr_frame_stream.end(
+                        frame_state.predicted_display_time,
+                        xr::EnvironmentBlendMode::OPAQUE,
+                        &[],
+                    )
+                {
+                    error!("Fallback end frame failed! {e}");
                 }
             }
         }
@@ -672,7 +684,33 @@ fn xr_runtime_now(xr_instance: &xr::Instance) -> Option<xr::Time> {
             .ok()
             .filter(|&time_nanos| time_nanos.as_nanos() > 0)
     } else {
-        monotonic_now().filter(|&time_nanos| time_nanos.as_nanos() > 0)
+        // Without the extension the XrTime base is unknown. Estimate it from the offset between
+        // CLOCK_MONOTONIC and the runtime's predicted display time (see update_xr_time_offset).
+        let offset = XR_TIME_OFFSET_NS.load(Ordering::Relaxed);
+        if offset == i64::MIN {
+            return None;
+        }
+        monotonic_now()
+            .map(|now| xr::Time::from_nanos(now.as_nanos() + offset))
+            .filter(|&time_nanos| time_nanos.as_nanos() > 0)
+    }
+}
+
+// Offset in nanoseconds between XrTime and CLOCK_MONOTONIC. Only used when
+// XR_KHR_convert_timespec_time is not available. i64::MIN means "not yet known".
+static XR_TIME_OFFSET_NS: AtomicI64 = AtomicI64::new(i64::MIN);
+
+fn update_xr_time_offset(xr_instance: &xr::Instance, frame_state: &xr::FrameState) {
+    if xr_instance.exts().khr_convert_timespec_time.is_some() {
+        return;
+    }
+
+    if let Some(now) = monotonic_now() {
+        // xrWaitFrame returns roughly one display period before the predicted display time, so
+        // this approximates the current XrTime.
+        let xr_now = frame_state.predicted_display_time.as_nanos()
+            - frame_state.predicted_display_period.as_nanos();
+        XR_TIME_OFFSET_NS.store(xr_now - now.as_nanos(), Ordering::Relaxed);
     }
 }
 
