@@ -17,8 +17,8 @@ use wgpu::{
     PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, PushConstantRange, RenderPass,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
     SamplerBindingType, SamplerDescriptor, ShaderModuleDescriptor, ShaderStages, StoreOp,
-    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureSampleType,
-    TextureView, TextureViewDimension, VertexState, include_wgsl,
+    TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureAspect, TextureFormat,
+    TextureSampleType, TextureView, TextureViewDimension, VertexState, include_wgsl,
 };
 
 const TRANSFORM_CONST_SIZE: u32 = mem::size_of::<Mat4>() as u32;
@@ -161,6 +161,7 @@ fn create_pipeline(
     push_constants_len: u32,
     shader: ShaderModuleDescriptor,
     topology: PrimitiveTopology,
+    target_format: TextureFormat,
 ) -> RenderPipeline {
     let shader_module = device.create_shader_module(shader);
     device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -191,7 +192,7 @@ fn create_pipeline(
             entry_point: None,
             compilation_options: Default::default(),
             targets: &[Some(ColorTargetState {
-                format: SDR_FORMAT,
+                format: target_format,
                 blend: Some(BlendState {
                     color: BlendComponent {
                         src_factor: BlendFactor::SrcAlpha,
@@ -231,6 +232,7 @@ impl LobbyRenderer {
         context: Rc<GraphicsContext>,
         view_resolution: UVec2,
         swapchain_textures: [Vec<u32>; 2],
+        swapchain_format: TextureFormat,
         initial_hud_message: &str,
     ) -> Self {
         let device = &context.device;
@@ -267,6 +269,7 @@ impl LobbyRenderer {
             QUAD_PUSH_CONTANTS_SIZE,
             include_wgsl!("../resources/lobby_quad.wgsl"),
             PrimitiveTopology::TriangleStrip,
+            swapchain_format,
         );
 
         let line_pipeline = create_pipeline(
@@ -276,6 +279,7 @@ impl LobbyRenderer {
             LINE_PUSH_CONTANTS_SIZE,
             include_wgsl!("../resources/lobby_line.wgsl"),
             PrimitiveTopology::LineList,
+            swapchain_format,
         );
 
         let bind_group = device.create_bind_group(&BindGroupDescriptor {
@@ -302,8 +306,18 @@ impl LobbyRenderer {
         });
 
         let render_targets = [
-            super::create_gl_swapchain(device, &swapchain_textures[0], view_resolution, SDR_FORMAT),
-            super::create_gl_swapchain(device, &swapchain_textures[1], view_resolution, SDR_FORMAT),
+            super::create_gl_swapchain(
+                device,
+                &swapchain_textures[0],
+                view_resolution,
+                swapchain_format,
+            ),
+            super::create_gl_swapchain(
+                device,
+                &swapchain_textures[1],
+                view_resolution,
+                swapchain_format,
+            ),
         ];
 
         let this = Self {

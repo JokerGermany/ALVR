@@ -3,7 +3,7 @@ use crate::{
     interaction::{self, InteractionContext},
 };
 use alvr_common::{Pose, ViewParams, glam::UVec2, parking_lot::RwLock};
-use alvr_graphics::{GraphicsContext, LobbyRenderer, LobbyViewParams, SDR_FORMAT_GL};
+use alvr_graphics::{GraphicsContext, LobbyRenderer, LobbyViewParams};
 use alvr_system_info::Platform;
 use openxr as xr;
 use std::{rc::Rc, sync::Arc, time::Duration};
@@ -39,9 +39,25 @@ impl Lobby {
 
         let reference_space = interaction::get_reference_space(&xr_session, reference_space_type);
 
+        // Not every runtime supports RGBA8 (e.g. SteamVR on the Steam Frame / Lepton), so pick a
+        // format the runtime actually offers.
+        let swapchain_format = graphics::swapchain_format(&gfx_ctx, &xr_session, false);
+
         let swapchains = [
-            graphics::create_swapchain(&xr_session, &gfx_ctx, view_resolution, SDR_FORMAT_GL, None),
-            graphics::create_swapchain(&xr_session, &gfx_ctx, view_resolution, SDR_FORMAT_GL, None),
+            graphics::create_swapchain(
+                &xr_session,
+                &gfx_ctx,
+                view_resolution,
+                swapchain_format,
+                None,
+            ),
+            graphics::create_swapchain(
+                &xr_session,
+                &gfx_ctx,
+                view_resolution,
+                swapchain_format,
+                None,
+            ),
         ];
 
         let renderer = LobbyRenderer::new(
@@ -61,6 +77,7 @@ impl Lobby {
                     .map(|i| *i as _)
                     .collect(),
             ],
+            alvr_graphics::gl_format_to_wgpu(swapchain_format),
             initial_hud_message,
         );
 
